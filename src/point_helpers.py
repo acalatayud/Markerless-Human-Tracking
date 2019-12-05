@@ -4,6 +4,12 @@ import csv
 import json
 import cv2
 
+class Camera:
+    def __init__(self, name, frames, intrinsic_properties, extrinsic_properties):
+        self.name = name
+        self.frames = frames
+        self.intrinsic_properties
+        self.extrinsic_properties
 
 class Frame:
     def __init__(self, markers, frame_number):
@@ -18,6 +24,17 @@ class Marker:
         self.likelihood = likelihood
         self.marker_key = marker_key
 
+def triangulate_points(cameras)
+    if (len(cameras) < 2):
+        print("Triangulation process needs at least two cameras")
+    number_of_frames = len(cameras[0].frames)
+    for in range(number_of_frames - 1):
+        stereo_cameras = get_two_best_cameras_for_frame()
+        cv2.
+
+
+def add_camera(cameras, csv_files,intrinsic_file, extrinsic_file)
+    return camera.append(Camera(csv_file, read_marker_position_csv(csv_file), read_cameras_intrinsic_properties(intrinsic_file), read_cameras_extrinsic_properties(extrinsic_file)))
 
 def read_marker_position_csv(csv_file):
 
