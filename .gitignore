@@ -314,3 +314,7 @@ dmypy.json
 # End of https://www.gitignore.io/api/python,pycharm,pycharm+iml,pycharm+all
 
 **/config.yaml
+
+*.png
+
+src/pf-markerless3d-acalatayud-lmikolas-2019-09-11/videos/
