@@ -5,18 +5,23 @@ import json
 import cv2
 import numpy as np
 
+
 class Camera:
     def __init__(self, camera_number, frames, intrinsic_properties, extrinsic_properties):
         self.number = camera_number
         self.frames = frames
-        self.R = extrinsic_properties[camera_number]['rotationVector']
-        self.T = extrinsic_properties[camera_number]['translationVector']
-        self.camera_matrix
-        self.distortion_coefficients = intrinsic_properties[camera_number]
-        self.reprojectionError = intrinsic_properties[camera_number]
-
-
-
+        r = extrinsic_properties[camera_number]['rotationVector']
+        self.R = None
+        cv2.Rodrigues(r, self.R)
+        translation = extrinsic_properties[camera_number]['translationVector']
+        self.T = np.array(get_3d_vector(translation))
+        matrix_parameters = intrinsic_properties[camera_number]['calibrationMatrix']
+        self.camera_matrix = np.matrix([matrix_parameters['fx'], 0, matrix_parameters['cx']],
+                                       [0, matrix_parameters['fy'], matrix_parameters['fy']],
+                                       [0, 0, 1])
+        coef = intrinsic_properties[camera_number]['distortionCoefficients']
+        self.distortion_coefficients = [coef['k1'], coef['k2'], coef['p1'], coef['p2'], coef['k3']]
+        self.reprojectionError = float(intrinsic_properties[camera_number]['reprojectionError'])
 
 
 class Frame:
@@ -32,10 +37,9 @@ class Marker:
         self.likelihood = likelihood
         self.marker_key = marker_key
 
+
 def get_two_best_cameras_for_marker(cameras, frame, marker):
-    stereo_cameras = []
-    stereo_cameras.append(cameras[0])
-    stereo_cameras.append(cameras[1])
+    stereo_cameras = [cameras[0], cameras[1]]
     if len(cameras) > 2:
         for i in range(2, len(cameras - 1)):
             if stereo_cameras[0].frames[frame].markers[marker].likelihood > cameras[i].frames[frame].markers[marker].likelihood:
@@ -46,6 +50,7 @@ def get_two_best_cameras_for_marker(cameras, frame, marker):
                 stereo_cameras[1] = cameras[i]
     return stereo_cameras
 
+
 def triangulate_points(cameras):
     if len(cameras) < 2:
         raise Exception('Triangulation process needs at least two cameras')
@@ -55,18 +60,28 @@ def triangulate_points(cameras):
     for i in range(number_of_frames - 1):
         for j in range(number_of_markers - 1):
             stereo_cameras = get_two_best_cameras_for_marker(cameras, i, j)
-            cv2.stereoCalibrate(stereo_cameras[0].camera_matrix, stereo_cameras[1].camera_matrix,
-                              stereo_cameras[0].distortion_coefficients, stereo_cameras[1].distortion_coefficients,
-                              image_size, R, T, E, F)
-            cv2.stereoRectify()
-            cv2.undistortPoints()
-            cv2.undistortPoints()
-            cv2.triangulatePoints()
+            relative_t = stereo_cameras[1].T - stereo_cameras[0].T
+            rotation = stereo_cameras[1].R * np.linalg.inv(stereo_cameras[0].R * relative_t[2])
+            r1, r2, p1, p2 = cv2.stereoRectify(stereo_cameras[0].camera_matrix,
+                                               stereo_cameras[0].distortion_coefficients,
+                                               stereo_cameras[1].camera_matrix,
+                                               stereo_cameras[1].distortion_coefficients, image_size,
+                                               rotation, relative_t)
+            undistorted_points = []
+            for index, camera in enumerate(stereo_cameras):
+                undistorted_point = cv2.undistortPoints(camera.frames[i].markers[j], camera.camera_matrix,
+                                                        camera.distortion_coefficients)
+                undistorted_points[index] = undistorted_point
+
+            triangulated = cv2.triangulatePoints(p1, p2, undistorted_points[0], undistorted_points[1])
+            print(triangulated)
 
 
+def add_camera(cameras, camera_number, csv_file, intrinsic_file, extrinsic_file):
+    return cameras.append(Camera(camera_number, read_marker_position_csv(csv_file),
+                                 read_camera_properties(intrinsic_file),
+                                 read_camera_properties(extrinsic_file)))
 
-def add_camera(cameras, camera_number, csv_files,intrinsic_file, extrinsic_file):
-    return cameras.append(Camera(camera_number, read_marker_position_csv(csv_files), read_cameras_intrinsic_properties(intrinsic_file), read_cameras_extrinsic_properties(extrinsic_file)))
 
 def read_marker_position_csv(csv_file):
 
@@ -91,18 +106,12 @@ def read_marker_position_csv(csv_file):
     return frames
 
 
-def read_cameras_intrinsic_properties(json_file):
+def read_camera_properties(json_file):
     with open(json_file, 'r') as file:
-        intrinsic_properties = json.load(file)
+        properties = json.load(file)
 
-    return intrinsic_properties['calibration']['cameras']
+    return properties['calibration']['cameras']
 
-
-def read_cameras_extrinsic_properties(json_file):
-    with open(json_file, 'r') as file:
-        extrinsic_properties = json.load(file)
-
-    return extrinsic_properties['calibration']['cameras']
 
 def get_3d_vector(vector):
     return [float(vector['x']), float(vector['y']), float(vector['z'])]
