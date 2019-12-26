@@ -11,16 +11,15 @@ class Camera:
         self.number = camera_number
         self.frames = frames
         r = extrinsic_properties[camera_number]['rotationVector']
-        self.R = None
-        cv2.Rodrigues(r, self.R)
+        self.R = cv2.Rodrigues(get_3d_vector(r))[0]
         translation = extrinsic_properties[camera_number]['translationVector']
         self.T = np.array(get_3d_vector(translation))
         matrix_parameters = intrinsic_properties[camera_number]['calibrationMatrix']
-        self.camera_matrix = np.matrix([matrix_parameters['fx'], 0, matrix_parameters['cx']],
+        self.camera_matrix = np.matrix([[matrix_parameters['fx'], 0, matrix_parameters['cx']],
                                        [0, matrix_parameters['fy'], matrix_parameters['fy']],
-                                       [0, 0, 1])
+                                       [0, 0, 1]], dtype=float)
         coef = intrinsic_properties[camera_number]['distortionCoefficients']
-        self.distortion_coefficients = [coef['k1'], coef['k2'], coef['p1'], coef['p2'], coef['k3']]
+        self.distortion_coefficients = np.float64([coef['k1'], coef['k2'], coef['p1'], coef['p2'], coef['k3']])
         self.reprojectionError = float(intrinsic_properties[camera_number]['reprojectionError'])
 
 
@@ -56,20 +55,22 @@ def triangulate_points(cameras):
         raise Exception('Triangulation process needs at least two cameras')
     number_of_frames = len(cameras[0].frames)
     number_of_markers = len(cameras[0].frames[0].markers)
-    image_size = [640, 480]
+    image_size = (640, 480)
     for i in range(number_of_frames - 1):
         for j in range(number_of_markers - 1):
             stereo_cameras = get_two_best_cameras_for_marker(cameras, i, j)
             relative_t = stereo_cameras[1].T - stereo_cameras[0].T
             rotation = stereo_cameras[1].R * np.linalg.inv(stereo_cameras[0].R * relative_t[2])
-            r1, r2, p1, p2 = cv2.stereoRectify(stereo_cameras[0].camera_matrix,
-                                               stereo_cameras[0].distortion_coefficients,
-                                               stereo_cameras[1].camera_matrix,
-                                               stereo_cameras[1].distortion_coefficients, image_size,
-                                               rotation, relative_t)
-            undistorted_points = []
+            r1, r2, p1, p2, q, roi1, roi2 = cv2.stereoRectify(stereo_cameras[0].camera_matrix,
+                                                              stereo_cameras[0].distortion_coefficients,
+                                                              stereo_cameras[1].camera_matrix,
+                                                              stereo_cameras[1].distortion_coefficients, image_size,
+                                                              rotation, relative_t)
+            undistorted_points = [None, None]
             for index, camera in enumerate(stereo_cameras):
-                undistorted_point = cv2.undistortPoints(camera.frames[i].markers[j], camera.camera_matrix,
+                marker = camera.frames[i].markers[j]
+                point = np.float64([marker.x, marker.y])
+                undistorted_point = cv2.undistortPoints(point, camera.camera_matrix,
                                                         camera.distortion_coefficients)
                 undistorted_points[index] = undistorted_point
 
@@ -114,4 +115,4 @@ def read_camera_properties(json_file):
 
 
 def get_3d_vector(vector):
-    return [float(vector['x']), float(vector['y']), float(vector['z'])]
+    return np.float64([float(vector['x']), float(vector['y']), float(vector['z'])])
