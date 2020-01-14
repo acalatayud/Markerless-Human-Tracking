@@ -7,20 +7,23 @@ import numpy as np
 
 
 class Camera:
-    def __init__(self, camera_number, frames, intrinsic_properties, extrinsic_properties):
+    def __init__(self, camera_number, intrinsic_properties, extrinsic_properties):
         self.number = camera_number
-        self.frames = frames
-        r = extrinsic_properties[camera_number]['rotationVector']
+        self.frames = None
+        r = extrinsic_properties['rotationVector']
         self.R = cv2.Rodrigues(get_3d_vector(r))[0]
-        translation = extrinsic_properties[camera_number]['translationVector']
+        translation = extrinsic_properties['translationVector']
         self.T = np.array(get_3d_vector(translation))
-        matrix_parameters = intrinsic_properties[camera_number]['calibrationMatrix']
+        matrix_parameters = intrinsic_properties['calibrationMatrix']
         self.camera_matrix = np.matrix([[matrix_parameters['fx'], 0, matrix_parameters['cx']],
                                        [0, matrix_parameters['fy'], matrix_parameters['fy']],
                                        [0, 0, 1]], dtype=float)
-        coef = intrinsic_properties[camera_number]['distortionCoefficients']
+        coef = intrinsic_properties['distortionCoefficients']
         self.distortion_coefficients = np.float64([coef['k1'], coef['k2'], coef['p1'], coef['p2'], coef['k3']])
-        self.reprojectionError = float(intrinsic_properties[camera_number]['reprojectionError'])
+        self.reprojectionError = float(intrinsic_properties['reprojectionError'])
+
+    def add_frames(self, frames):
+        self.frames = frames
 
 
 class Frame:
@@ -56,7 +59,9 @@ def triangulate_points(cameras):
     number_of_frames = len(cameras[0].frames)
     number_of_markers = len(cameras[0].frames[0].markers)
     image_size = (640, 480)
+    triangulated_frames = []
     for i in range(number_of_frames - 1):
+        triangulated_markers = []
         for j in range(number_of_markers - 1):
             stereo_cameras = get_two_best_cameras_for_marker(cameras, i, j)
             relative_t = stereo_cameras[1].T - stereo_cameras[0].T
@@ -67,6 +72,7 @@ def triangulate_points(cameras):
                                                               stereo_cameras[1].distortion_coefficients, image_size,
                                                               rotation, relative_t)
             undistorted_points = [None, None]
+            marker_key = stereo_cameras[0].frames[i].markers[j].marker_key
             for index, camera in enumerate(stereo_cameras):
                 marker = camera.frames[i].markers[j]
                 point = np.float64([marker.x, marker.y])
@@ -75,13 +81,19 @@ def triangulate_points(cameras):
                 undistorted_points[index] = undistorted_point
 
             triangulated = cv2.triangulatePoints(p1, p2, undistorted_points[0], undistorted_points[1])
-            print(triangulated)
+            triangulated_markers.append({'point': triangulated, 'marker': marker_key})
+        triangulated_frames.append(triangulated_markers)
+    return triangulated_frames
 
 
-def add_camera(cameras, camera_number, csv_file, intrinsic_file, extrinsic_file):
-    return cameras.append(Camera(camera_number, read_marker_position_csv(csv_file),
-                                 read_camera_properties(intrinsic_file),
-                                 read_camera_properties(extrinsic_file)))
+def get_cameras(intrinsic_file, extrinsic_file):
+    cameras = []
+    intrinsic_properties = read_camera_properties(intrinsic_file)
+    extrinsic_properties = read_camera_properties(extrinsic_file)
+    for camera in intrinsic_properties:
+        camera_number = int(camera['cameraNumber'])
+        cameras.append(Camera(camera_number, intrinsic_properties[camera_number], extrinsic_properties[camera_number]))
+    return cameras
 
 
 def read_marker_position_csv(csv_file):
@@ -107,6 +119,13 @@ def read_marker_position_csv(csv_file):
     return frames
 
 
+def add_frames(paths, cameras):
+    for path in paths:
+        camera_number = path['camera']
+        cameras[camera_number].add_frames(read_marker_position_csv(path['path']))
+    return list(filter(lambda c: c.frames is not None, cameras))
+
+
 def read_camera_properties(json_file):
     with open(json_file, 'r') as file:
         properties = json.load(file)
@@ -116,3 +135,45 @@ def read_camera_properties(json_file):
 
 def get_3d_vector(vector):
     return np.float64([float(vector['x']), float(vector['y']), float(vector['z'])])
+
+
+def export_csv(triangulated_frames):
+    with open('points.csv', mode='w', newline='') as csv_file:
+        fields = ['frame', 'marker', 'x', 'y', 'z']
+        writer = csv.DictWriter(csv_file, fieldnames=fields)
+
+        writer.writeheader()
+        for index, frame in enumerate(triangulated_frames):
+            for marker in frame:
+                point = marker['point']
+                marker_key = marker['marker']
+                writer.writerow({'frame': index, 'marker': marker_key, 'x': point[0][0], 'y': point[1][0], 'z': point[1][0]})
+
+
+def export_xyz(triangulated_frames):
+    with open('points.xyz', mode='w', newline='') as xyz_file:
+
+        marker_number = len(triangulated_frames[0])
+        for index, frame in enumerate(triangulated_frames):
+            xyz_file.write(str(marker_number) + "\n")
+            xyz_file.write("\n")
+            for marker in frame:
+                point = marker['point']
+                marker_key = constants.MARKER_INDICES[marker['marker']]
+                xyz_file.write(str(marker_key) + ' ' + str(point[0][0]) + ' ' + str(point[1][0])
+                               + ' ' + str(point[1][0]) + '\n')
+
+
+# EXAMPLE CALL: CHANGE PATHS
+path = r'F:\JetBrains\PyCharm Workspace\pf-markerless3d\pf-markless3d-Agustin Calatayud Lorant Mikolas-2019-10-14'
+path2 = r'D:\Downloads\PF\Captures'
+
+
+frame_paths = [{'camera': 2, 'path': path + r'\videos\scene-1-cam-2DeepCut_resnet50_pf-markless3dOct14shuffle1_400000.csv'},
+         {'camera': 7, 'path': path + r'\videos\scene-1-cam-7DeepCut_resnet50_pf-markless3dOct14shuffle1_400000.csv'}]
+cameras = get_cameras(path2 + r'\intrinsics.json', path2 + r'\extrinsics.json')
+cameras = add_frames(frame_paths, cameras)
+
+triangulated_frames = triangulate_points(cameras)
+export_csv(triangulated_frames)
+export_xyz(triangulated_frames)
