@@ -16,8 +16,8 @@ class Camera:
         self.T = np.array(get_3d_vector(translation))
         matrix_parameters = intrinsic_properties['calibrationMatrix']
         self.camera_matrix = np.matrix([[matrix_parameters['fx'], 0, matrix_parameters['cx']],
-                                       [0, matrix_parameters['fy'], matrix_parameters['fy']],
-                                       [0, 0, 1]], dtype=float)
+                                       [0, matrix_parameters['fy'], matrix_parameters['cy']],
+                                       [0, 0, 1]], dtype=np.float64)
         coef = intrinsic_properties['distortionCoefficients']
         self.distortion_coefficients = np.float64([coef['k1'], coef['k2'], coef['p1'], coef['p2'], coef['k3']])
         self.reprojectionError = float(intrinsic_properties['reprojectionError'])
@@ -80,8 +80,9 @@ def triangulate_points(cameras):
                                                         camera.distortion_coefficients)
                 undistorted_points[index] = undistorted_point
 
-            triangulated = cv2.triangulatePoints(p1, p2, undistorted_points[0], undistorted_points[1])
-            triangulated_markers.append({'point': triangulated, 'marker': marker_key})
+            triangulated_hc = cv2.triangulatePoints(p1, p2, undistorted_points[0], undistorted_points[1])
+            #triangulated = np.divide(triangulated_hc, triangulated_hc[3][0])
+            triangulated_markers.append({'point': triangulated_hc, 'marker': marker_key})
         triangulated_frames.append(triangulated_markers)
     return triangulated_frames
 
@@ -147,7 +148,7 @@ def export_csv(triangulated_frames):
             for marker in frame:
                 point = marker['point']
                 marker_key = marker['marker']
-                writer.writerow({'frame': index, 'marker': marker_key, 'x': point[0][0], 'y': point[1][0], 'z': point[1][0]})
+                writer.writerow({'frame': index, 'marker': marker_key, 'x': point[0][0], 'y': point[1][0], 'z': point[2][0]})
 
 
 def export_xyz(triangulated_frames):
@@ -161,16 +162,16 @@ def export_xyz(triangulated_frames):
                 point = marker['point']
                 marker_key = constants.MARKER_INDICES[marker['marker']]
                 xyz_file.write(str(marker_key) + ' ' + str(point[0][0]) + ' ' + str(point[1][0])
-                               + ' ' + str(point[1][0]) + '\n')
+                               + ' ' + str(point[2][0]) + '\n')
 
 
 # EXAMPLE CALL: CHANGE PATHS
-path = r'F:\JetBrains\PyCharm Workspace\pf-markerless3d\pf-markless3d-Agustin Calatayud Lorant Mikolas-2019-10-14'
-path2 = r'D:\Downloads\PF\Captures'
+path = r'C:\Users\lmikolas\Downloads'
+path2 = r'C:\Users\lmikolas\Downloads'
 
 
-frame_paths = [{'camera': 2, 'path': path + r'\videos\scene-1-cam-2DeepCut_resnet50_pf-markless3dOct14shuffle1_400000.csv'},
-         {'camera': 7, 'path': path + r'\videos\scene-1-cam-7DeepCut_resnet50_pf-markless3dOct14shuffle1_400000.csv'}]
+frame_paths = [{'camera': 7, 'path': path + r'\scene-2-cam-7DeepCut_resnet101_pf-markerless3dSep11shuffle1_500000.csv'},
+         {'camera': 6, 'path': path + r'\\scene-2-cam-6DeepCut_resnet101_pf-markerless3dSep11shuffle1_500000.csv'}]
 cameras = get_cameras(path2 + r'\intrinsics.json', path2 + r'\extrinsics.json')
 cameras = add_frames(frame_paths, cameras)
 
