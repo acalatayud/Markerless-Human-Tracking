@@ -71,13 +71,15 @@ def triangulate_points(cameras):
                                                               stereo_cameras[1].camera_matrix,
                                                               stereo_cameras[1].distortion_coefficients, image_size,
                                                               rotation, relative_t)
+            R = [r1, r2]
+            P = [p1, p2]
             undistorted_points = [None, None]
             marker_key = stereo_cameras[0].frames[i].markers[j].marker_key
             for index, camera in enumerate(stereo_cameras):
                 marker = camera.frames[i].markers[j]
                 point = np.float64([marker.x, marker.y])
                 undistorted_point = cv2.undistortPoints(point, camera.camera_matrix,
-                                                        camera.distortion_coefficients)
+                                                        camera.distortion_coefficients, R=R[index], P=P[index])
                 undistorted_points[index] = undistorted_point
 
             triangulated_hc = cv2.triangulatePoints(p1, p2, undistorted_points[0], undistorted_points[1])
