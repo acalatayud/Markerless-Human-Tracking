@@ -64,8 +64,8 @@ def triangulate_points(cameras):
         triangulated_markers = []
         for j in range(number_of_markers - 1):
             stereo_cameras = get_two_best_cameras_for_marker(cameras, i, j)
-            relative_t = stereo_cameras[1].T - stereo_cameras[0].T
-            rotation = stereo_cameras[1].R * np.linalg.inv(stereo_cameras[0].R * relative_t[2])
+            relative_t = np.matmul(stereo_cameras[0].R, (stereo_cameras[1].T - stereo_cameras[0].T))
+            rotation = np.matmul(np.linalg.inv(stereo_cameras[0].R), stereo_cameras[1].R)
             r1, r2, p1, p2, q, roi1, roi2 = cv2.stereoRectify(stereo_cameras[0].camera_matrix,
                                                               stereo_cameras[0].distortion_coefficients,
                                                               stereo_cameras[1].camera_matrix,
@@ -81,8 +81,9 @@ def triangulate_points(cameras):
                 undistorted_points[index] = undistorted_point
 
             triangulated_hc = cv2.triangulatePoints(p1, p2, undistorted_points[0], undistorted_points[1])
+            triangulated = cv2.convertPointsFromHomogeneous(triangulated_hc.reshape((1,4)))
             #triangulated = np.divide(triangulated_hc, triangulated_hc[3][0])
-            triangulated_markers.append({'point': triangulated_hc, 'marker': marker_key})
+            triangulated_markers.append({'point': triangulated, 'marker': marker_key})
         triangulated_frames.append(triangulated_markers)
     return triangulated_frames
 
@@ -148,7 +149,7 @@ def export_csv(triangulated_frames):
             for marker in frame:
                 point = marker['point']
                 marker_key = marker['marker']
-                writer.writerow({'frame': index, 'marker': marker_key, 'x': point[0][0], 'y': point[1][0], 'z': point[2][0]})
+                writer.writerow({'frame': index, 'marker': marker_key, 'x': point[0][0][0], 'y': point[0][0][1], 'z': point[0][0][2]})
 
 
 def export_xyz(triangulated_frames):
@@ -156,13 +157,15 @@ def export_xyz(triangulated_frames):
 
         marker_number = len(triangulated_frames[0])
         for index, frame in enumerate(triangulated_frames):
+            marker_number = len(list(filter(lambda f: np.abs(f['point'][0][0][0]) < 5000 and np.abs(f['point'][0][0][1]) < 5000 and np.abs(f['point'][0][0][2]) < 5000, frame)))
             xyz_file.write(str(marker_number) + "\n")
             xyz_file.write("\n")
             for marker in frame:
                 point = marker['point']
-                marker_key = constants.MARKER_INDICES[marker['marker']]
-                xyz_file.write(str(marker_key) + ' ' + str(point[0][0]) + ' ' + str(point[1][0])
-                               + ' ' + str(point[2][0]) + '\n')
+                if np.abs(point[0][0][1]) < 5000 and np.abs(point[0][0][0]) < 5000 and np.abs(point[0][0][2]) < 5000:
+                    marker_key = constants.MARKER_INDICES[marker['marker']]
+                    xyz_file.write(str(marker_key) + ' ' + str(point[0][0][0]) + ' ' + str(point[0][0][1])
+                                   + ' ' + str(point[0][0][2]) + '\n')
 
 
 # EXAMPLE CALL: CHANGE PATHS
