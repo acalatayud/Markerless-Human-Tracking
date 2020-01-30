@@ -11,7 +11,8 @@ class Camera:
         self.number = camera_number
         self.frames = None
         r = extrinsic_properties['rotationVector']
-        self.R = cv2.Rodrigues(get_3d_vector(r))[0]
+        self.Rvec = get_3d_vector(r)
+        self.R = cv2.Rodrigues(self.Rvec)[0]
         translation = extrinsic_properties['translationVector']
         self.T = np.array(get_3d_vector(translation))
         matrix_parameters = intrinsic_properties['calibrationMatrix']
@@ -64,8 +65,8 @@ def triangulate_points(cameras):
         triangulated_markers = []
         for j in range(number_of_markers - 1):
             stereo_cameras = get_two_best_cameras_for_marker(cameras, i, j)
-            relative_t = np.matmul(stereo_cameras[0].R, (stereo_cameras[1].T - stereo_cameras[0].T))
-            rotation = np.matmul(np.linalg.inv(stereo_cameras[0].R), stereo_cameras[1].R)
+            relative_t = stereo_cameras[1].T - stereo_cameras[0].T
+            rotation = cv2.Rodrigues(stereo_cameras[1].Rvec - stereo_cameras[0].Rvec)[0]
             r1, r2, p1, p2, q, roi1, roi2 = cv2.stereoRectify(stereo_cameras[0].camera_matrix,
                                                               stereo_cameras[0].distortion_coefficients,
                                                               stereo_cameras[1].camera_matrix,
@@ -176,7 +177,7 @@ path2 = r'C:\Users\lmikolas\Downloads'
 
 
 frame_paths = [{'camera': 7, 'path': path + r'\scene-2-cam-7DeepCut_resnet101_pf-markerless3dSep11shuffle1_500000.csv'},
-         {'camera': 6, 'path': path + r'\\scene-2-cam-6DeepCut_resnet101_pf-markerless3dSep11shuffle1_500000.csv'}]
+         {'camera': 0, 'path': path + r'\\scene-2-cam-0DeepCut_resnet101_pf-markerless3dSep11shuffle1_500000.csv'}]
 cameras = get_cameras(path2 + r'\intrinsics.json', path2 + r'\extrinsics.json')
 cameras = add_frames(frame_paths, cameras)
 
