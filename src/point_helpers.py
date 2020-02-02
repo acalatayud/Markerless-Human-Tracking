@@ -66,7 +66,8 @@ def triangulate_points(cameras):
         triangulated_markers = []
         for j in range(number_of_markers - 1):
             stereo_cameras = get_two_best_cameras_for_marker(cameras, i, j)
-            relative_t = np.matmul(stereo_cameras[0].R.T, -np.matmul(stereo_cameras[0].R.T, stereo_cameras[1].T) - (- np.matmul(stereo_cameras[0].R.T, stereo_cameras[0].T)))
+            relative_t = np.matmul(stereo_cameras[0].R, -np.matmul(stereo_cameras[1].R.T, stereo_cameras[1].T)
+                                   + np.matmul(stereo_cameras[0].R.T, stereo_cameras[0].T))
             rotation = np.matmul(stereo_cameras[1].R, stereo_cameras[0].R.T)
             r1, r2, p1, p2, q, roi1, roi2 = cv2.stereoRectify(stereo_cameras[0].camera_matrix,
                                                               stereo_cameras[0].distortion_coefficients,
@@ -86,12 +87,12 @@ def triangulate_points(cameras):
                     undistorted_points[index] = undistorted_point
 
                 triangulated_hc = cv2.triangulatePoints(p1, p2, undistorted_points[0], undistorted_points[1])
-                triangulated = np.divide(triangulated_hc, triangulated_hc[3][0])
-                triangulated = [triangulated[0][0], triangulated[1][0], triangulated[2][0]]
-                cam, rot, trans, rotx, roty, rotz, euler = cv2.decomposeProjectionMatrix(p2)
+                triangulated_hc = np.divide(triangulated_hc, triangulated_hc[3][0])
+                triangulated = [triangulated_hc[0][0], triangulated_hc[1][0], triangulated_hc[2][0]]
                 # PASS TO WORLD COORDINATES FROM RECTIFIED CAMERA COORDINATE SYSTEM?
-                triangulated_wc = np.matmul(stereo_cameras[0].R.T, (triangulated - stereo_cameras[0].T))
-                triangulated_markers.append({'point': triangulated_wc, 'marker': marker_key})
+                cam, rot, trans, rotx, roy, trot, euler = cv2.decomposeProjectionMatrix(p1)
+                triangulated_wc = np.matmul(np.linalg.inv(rot), triangulated)
+                triangulated_markers.append({'point': triangulated, 'marker': marker_key})
         triangulated_frames.append(triangulated_markers)
     return triangulated_frames
 
@@ -160,16 +161,28 @@ def export_csv(triangulated_frames):
                 writer.writerow({'frame': index, 'marker': marker_key, 'x': point[0], 'y': point[1], 'z': point[2]})
 
 
-def export_xyz(triangulated_frames):
+def export_xyz(triangulated_frames, cameras):
     with open('points.xyz', mode='w', newline='') as xyz_file:
         for index, frame in enumerate(triangulated_frames):
-            xyz_file.write(str(len(triangulated_frames[index])) + "\n")
+            xyz_file.write(str(len(triangulated_frames[index]) + len(cameras) + 1) + "\n")
             xyz_file.write("\n")
+            camera0 = -np.matmul(cameras[0].R.T, cameras[0].T)
+            camera1 = -np.matmul(cameras[1].R.T, cameras[1].T)
+            xyz_file.write(str(102) + ' ' + str(camera0[0]) + ' ' + str(camera0[1])
+                           + ' ' + str(camera0[2]) + ' '
+                           + str(-camera0[0]) + ' ' + str(-camera0[1]) + ' ' + str(-camera0[2]) + '\n')
+            xyz_file.write(str(101) + ' ' + str(camera1[0]) + ' ' + str(camera1[1])
+                           + ' ' + str(camera1[2]) + ' '
+                           + str(-camera1[0]) + ' ' + str(-camera1[1]) + ' ' + str(-camera1[2]) + '\n')
+            xyz_file.write(str(100) + ' ' + str(0) + ' ' + str(0) + ' ' + str(0)
+                           + ' '
+                           + str(0) + ' ' + str(0) + ' ' + str(0) + '\n')
             for marker in frame:
                 point = marker['point']
                 marker_key = constants.MARKER_INDICES[marker['marker']]
                 xyz_file.write(str(marker_key) + ' ' + str(point[0]) + ' ' + str(point[1])
-                               + ' ' + str(point[2]) + '\n')
+                               + ' ' + str(point[2]) + ' '
+                               + str(0) + ' ' + str(0) + ' ' + str(0) + '\n')
 
 
 # EXAMPLE CALL: CHANGE PATHS
@@ -184,4 +197,4 @@ cameras = add_frames(frame_paths, cameras)
 
 triangulated_frames = triangulate_points(cameras)
 export_csv(triangulated_frames)
-export_xyz(triangulated_frames)
+export_xyz(triangulated_frames, cameras)
