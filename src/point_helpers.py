@@ -66,8 +66,8 @@ def triangulate_points(cameras):
         triangulated_markers = []
         for j in range(number_of_markers - 1):
             stereo_cameras = get_two_best_cameras_for_marker(cameras, i, j)
-            relative_t = np.matmul(stereo_cameras[0].R, stereo_cameras[1].T - stereo_cameras[0].T)
-            rotation = np.matmul(stereo_cameras[1].R, np.linalg.inv(stereo_cameras[0].R))
+            relative_t = np.matmul(stereo_cameras[0].R.T, -np.matmul(stereo_cameras[0].R.T, stereo_cameras[1].T) - (- np.matmul(stereo_cameras[0].R.T, stereo_cameras[0].T)))
+            rotation = np.matmul(stereo_cameras[1].R, stereo_cameras[0].R.T)
             r1, r2, p1, p2, q, roi1, roi2 = cv2.stereoRectify(stereo_cameras[0].camera_matrix,
                                                               stereo_cameras[0].distortion_coefficients,
                                                               stereo_cameras[1].camera_matrix,
@@ -77,20 +77,21 @@ def triangulate_points(cameras):
             P = [p1, p2]
             undistorted_points = [None, None]
             marker_key = stereo_cameras[0].frames[i].markers[j].marker_key
-            for index, camera in enumerate(stereo_cameras):
-                marker = camera.frames[i].markers[j]
-                point = np.float64([marker.x, marker.y])
-                undistorted_point = cv2.undistortPoints(point, camera.camera_matrix,
-                                                        camera.distortion_coefficients, R=R[index], P=P[index])
-                undistorted_points[index] = undistorted_point
+            if stereo_cameras[0].frames[i].markers[j].likelihood >= 0.9:
+                for index, camera in enumerate(stereo_cameras):
+                    marker = camera.frames[i].markers[j]
+                    point = np.float64([marker.x, marker.y])
+                    undistorted_point = cv2.undistortPoints(point, camera.camera_matrix,
+                                                            camera.distortion_coefficients, R=R[index], P=P[index])
+                    undistorted_points[index] = undistorted_point
 
-            triangulated_hc = cv2.triangulatePoints(p1, p2, undistorted_points[0], undistorted_points[1])
-            triangulated = np.divide(triangulated_hc, triangulated_hc[3][0])
-            triangulated = [triangulated[0][0], triangulated[1][0], triangulated[2][0]]
-            # PASS TO WORLD COORDINATES FROM RECTIFIED CAMERA COORDINATE SYSTEM?
-            triangulated_wc = np.matmul(np.linalg.inv(stereo_cameras[0].R), triangulated) \
-                              - stereo_cameras[0].T
-            triangulated_markers.append({'point': triangulated, 'marker': marker_key})
+                triangulated_hc = cv2.triangulatePoints(p1, p2, undistorted_points[0], undistorted_points[1])
+                triangulated = np.divide(triangulated_hc, triangulated_hc[3][0])
+                triangulated = [triangulated[0][0], triangulated[1][0], triangulated[2][0]]
+                cam, rot, trans, rotx, roty, rotz, euler = cv2.decomposeProjectionMatrix(p2)
+                # PASS TO WORLD COORDINATES FROM RECTIFIED CAMERA COORDINATE SYSTEM?
+                triangulated_wc = np.matmul(stereo_cameras[0].R.T, (triangulated - stereo_cameras[0].T))
+                triangulated_markers.append({'point': triangulated_wc, 'marker': marker_key})
         triangulated_frames.append(triangulated_markers)
     return triangulated_frames
 
@@ -161,10 +162,8 @@ def export_csv(triangulated_frames):
 
 def export_xyz(triangulated_frames):
     with open('points.xyz', mode='w', newline='') as xyz_file:
-
-        marker_number = len(triangulated_frames[0])
         for index, frame in enumerate(triangulated_frames):
-            xyz_file.write(str(marker_number) + "\n")
+            xyz_file.write(str(len(triangulated_frames[index])) + "\n")
             xyz_file.write("\n")
             for marker in frame:
                 point = marker['point']
