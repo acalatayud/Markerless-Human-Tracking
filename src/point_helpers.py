@@ -91,8 +91,8 @@ def triangulate_points(cameras):
                 triangulated = [triangulated_hc[0][0], triangulated_hc[1][0], triangulated_hc[2][0]]
                 # PASS TO WORLD COORDINATES FROM RECTIFIED CAMERA COORDINATE SYSTEM?
                 cam, rot, trans, rotx, roy, trot, euler = cv2.decomposeProjectionMatrix(p1)
-                triangulated_wc = np.matmul(np.linalg.inv(rot), triangulated)
-                triangulated_markers.append({'point': triangulated, 'marker': marker_key})
+                triangulated_wc = - np.matmul(stereo_cameras[0].R.T, np.matmul(r1.T, triangulated) + stereo_cameras[0].T)
+                triangulated_markers.append({'point': triangulated_wc, 'marker': marker_key})
         triangulated_frames.append(triangulated_markers)
     return triangulated_frames
 
@@ -168,12 +168,14 @@ def export_xyz(triangulated_frames, cameras):
             xyz_file.write("\n")
             camera0 = -np.matmul(cameras[0].R.T, cameras[0].T)
             camera1 = -np.matmul(cameras[1].R.T, cameras[1].T)
+            camera0R = -np.matmul(cameras[0].R.T, [0,0,1])
+            camera1R = -np.matmul(cameras[1].R.T, [0,0,1])
             xyz_file.write(str(102) + ' ' + str(camera0[0]) + ' ' + str(camera0[1])
                            + ' ' + str(camera0[2]) + ' '
-                           + str(-camera0[0]) + ' ' + str(-camera0[1]) + ' ' + str(-camera0[2]) + '\n')
+                           + str(-camera0R[0]) + ' ' + str(-camera0R[1]) + ' ' + str(-camera0R[2]) + '\n')
             xyz_file.write(str(101) + ' ' + str(camera1[0]) + ' ' + str(camera1[1])
                            + ' ' + str(camera1[2]) + ' '
-                           + str(-camera1[0]) + ' ' + str(-camera1[1]) + ' ' + str(-camera1[2]) + '\n')
+                           + str(-camera1R[0]) + ' ' + str(-camera1R[1]) + ' ' + str(-camera1R[2]) + '\n')
             xyz_file.write(str(100) + ' ' + str(0) + ' ' + str(0) + ' ' + str(0)
                            + ' '
                            + str(0) + ' ' + str(0) + ' ' + str(0) + '\n')
