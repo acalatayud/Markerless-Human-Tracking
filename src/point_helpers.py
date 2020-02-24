@@ -27,6 +27,15 @@ class Camera:
         self.frames = frames
 
 
+class Stereo:
+    def __init__(self, camera_one, camera_two, remap, primary):
+        self.cameras = [camera_one, camera_two]
+        self.remap = remap
+        self.rotation = np.eye(3)
+        self.translation = [0, 0, 0]
+        self.primary = primary
+
+
 class Frame:
     def __init__(self, markers, frame_number):
         self.markers = markers
@@ -64,12 +73,10 @@ def get_best_stereo_cameras_for_marker(cameras, frame, marker):
     return stereo_cameras
 
 
-def get_front_back_cameras_for_marker(cameras, frame, marker):
-    front = [cameras[3], cameras[0]]
-    back = [cameras[1], cameras[2]]
-    if front[0].frames[frame].markers[marker].likelihood > 0.8 and front[1].frames[frame].markers[marker].likelihood > 0.8:
-        return front
-    return back
+def get_front_back_cameras_for_marker(stereo_pairs, frame, marker):
+    if stereo_pairs[0].cameras[0].frames[frame].markers[marker].likelihood > 0.9 and stereo_pairs[0].cameras[1].frames[frame].markers[marker].likelihood > 0.9:
+        return stereo_pairs[0]
+    return stereo_pairs[1]
 
 def get_stereo(cameras, frame, marker, index):
     if index == len(cameras) - 1:
@@ -79,6 +86,65 @@ def get_stereo(cameras, frame, marker, index):
     stereo_cameras = [cameras[index], cameras[index_next]]
     return stereo_cameras
 
+def get_rotation(unit1, unit2):
+    axis = np.cross(unit1, unit2)
+    cosA = np.dot(unit1, unit2)
+    k = 1.0 / (1.0 + cosA)
+    return [[(axis[0] * axis[0] * k) + cosA,
+           (axis[1] * axis[0] * k) - axis[2],
+           (axis[2] * axis[0] * k) + axis[1]],
+           [(axis[0] * axis[1] * k) + axis[2],
+           (axis[1] * axis[1] * k) + cosA,
+           (axis[2] * axis[1] * k) - axis[0]],
+           [(axis[0] * axis[2] * k) - axis[1],
+           (axis[1] * axis[2] * k) + axis[0],
+           (axis[2] * axis[2] * k) + cosA]]
+
+def remap_triangulation(camera_pair_one, camera_pair_two, number_of_markers, image_size):
+    # find most distant and likely matching markers
+    points_one = [None, None]
+    points_two = [None, None]
+    first_point_found = False
+    second_point_found = False
+    points_one[0] = triangulate_point(camera_pair_one, 0, 7, image_size)
+    points_one[1] = triangulate_point(camera_pair_one, 0, 13, image_size)
+    points_two[0] = triangulate_point(camera_pair_two, 0, 9, image_size)
+    points_two[1] = triangulate_point(camera_pair_two, 0, 11, image_size)
+    vec_one = points_one[1] - points_one[0]
+    vec_one = np.divide(vec_one, np.linalg.norm(vec_one))
+    vec_two = points_two[1] - points_two[0]
+    vec_two = np.divide(vec_two, np.linalg.norm(vec_two))
+    R = get_rotation(vec_two, vec_one)
+    point_one = triangulate_point(camera_pair_one, 0, 0, image_size)
+    point_two = np.matmul(R, triangulate_point(camera_pair_two, 0, 0, image_size))
+    return point_one - point_two, R
+
+def triangulate_point(stereo_cameras, i, j, image_size):
+    relative_translation = np.matmul(stereo_cameras.cameras[0].R, -np.matmul(stereo_cameras.cameras[1].R.T, stereo_cameras.cameras[1].T)
+                                     + np.matmul(stereo_cameras.cameras[0].R.T, stereo_cameras.cameras[0].T))
+    relative_rotation = np.matmul(stereo_cameras.cameras[1].R, stereo_cameras.cameras[0].R.T)
+    r1, r2, p1, p2, q, roi1, roi2 = cv2.stereoRectify(stereo_cameras.cameras[0].camera_matrix,
+                                                      stereo_cameras.cameras[0].distortion_coefficients,
+                                                      stereo_cameras.cameras[1].camera_matrix,
+                                                      stereo_cameras.cameras[1].distortion_coefficients, image_size,
+                                                      relative_rotation, relative_translation)
+    R = [r1, r2]
+    P = [p1, p2]
+    undistorted_points = [None, None]
+    for index, camera in enumerate(stereo_cameras.cameras):
+        marker = camera.frames[i].markers[j]
+        point = np.float64([marker.x, marker.y])
+        undistorted_point = cv2.undistortPoints(point, camera.camera_matrix,
+                                                camera.distortion_coefficients, R=R[index], P=P[index])
+        undistorted_points[index] = undistorted_point
+
+    triangulated_hc_camera_frame = cv2.triangulatePoints(p1, p2, undistorted_points[0], undistorted_points[1])
+    triangulated_hc_camera_frame = np.divide(triangulated_hc_camera_frame, triangulated_hc_camera_frame[3][0])
+    triangulated_ec_camera_frame = [triangulated_hc_camera_frame[0][0], triangulated_hc_camera_frame[1][0],
+                                    triangulated_hc_camera_frame[2][0]]
+    triangulated_ec_world_frame = np.matmul(-stereo_cameras.cameras[0].R.T,
+                                            np.matmul(r1.T, triangulated_ec_camera_frame) + stereo_cameras.cameras[0].T)
+    return triangulated_ec_world_frame
 
 def triangulate_points(cameras, filtered_applied):
     if len(cameras) < 2:
@@ -87,8 +153,7 @@ def triangulate_points(cameras, filtered_applied):
     number_of_markers = len(cameras[0].frames[0].markers)
     image_size = (640, 480)
     triangulated_frames = []
-    min_likelihood = 0.999
-
+    p = 0
     # set up filter values
     dt = 1.0 / 24
     transition_matrix = np.eye(9, dtype=np.float32)
@@ -109,35 +174,19 @@ def triangulate_points(cameras, filtered_applied):
         kalman_filter.measurementMatrix = measurement_matrix
         filters.append(Filter(kalman_filter))
     # triangulate points individually
+    stereo_pairs = [Stereo(cameras[7], cameras[0], [0, 0, 0], True), Stereo(cameras[3], cameras[4], [0, 0, 0], True)]
+    stereo_pairs[1].translation, stereo_pairs[1].rotation = remap_triangulation(stereo_pairs[0], stereo_pairs[1], number_of_markers, image_size)
+
     for i in range(number_of_frames - 1):
         triangulated_markers = []
         for j in range(number_of_markers - 1):
-            stereo_cameras = get_front_back_cameras_for_marker(cameras, i, j)
-            relative_translation = np.matmul(stereo_cameras[0].R, -np.matmul(stereo_cameras[1].R.T, stereo_cameras[1].T)
-                                   + np.matmul(stereo_cameras[0].R.T, stereo_cameras[0].T))
-            relative_rotation = np.matmul(stereo_cameras[1].R, stereo_cameras[0].R.T)
-            r1, r2, p1, p2, q, roi1, roi2 = cv2.stereoRectify(stereo_cameras[0].camera_matrix,
-                                                              stereo_cameras[0].distortion_coefficients,
-                                                              stereo_cameras[1].camera_matrix,
-                                                              stereo_cameras[1].distortion_coefficients, image_size,
-                                                              relative_rotation, relative_translation)
-            R = [r1, r2]
-            P = [p1, p2]
-            undistorted_points = [None, None]
-            marker_key = stereo_cameras[0].frames[i].markers[j].marker_key
-            if stereo_cameras[0].frames[i].markers[j].likelihood > min_likelihood and stereo_cameras[0].frames[i].markers[j].likelihood > min_likelihood:
-                for index, camera in enumerate(stereo_cameras):
-                    marker = camera.frames[i].markers[j]
-                    point = np.float64([marker.x, marker.y])
-                    undistorted_point = cv2.undistortPoints(point, camera.camera_matrix,
-                                                            camera.distortion_coefficients, R=R[index], P=P[index])
-                    undistorted_points[index] = undistorted_point
+            stereo_cameras = get_front_back_cameras_for_marker(stereo_pairs, i, j)
+            if stereo_cameras.cameras[0].frames[i].markers[j].likelihood > 0.5 and stereo_cameras.cameras[1].frames[i].markers[j].likelihood > 0.5:
+                marker_key = stereo_cameras.cameras[0].frames[i].markers[j].marker_key
+                # rematch triangulation
+                triangulated_ec_world_frame = np.matmul(stereo_cameras.rotation, triangulate_point(stereo_cameras, i, j, image_size)) + stereo_cameras.translation
 
-                triangulated_hc_camera_frame = cv2.triangulatePoints(p1, p2, undistorted_points[0], undistorted_points[1])
-                triangulated_hc_camera_frame = np.divide(triangulated_hc_camera_frame, triangulated_hc_camera_frame[3][0])
-                triangulated_ec_camera_frame = [triangulated_hc_camera_frame[0][0], triangulated_hc_camera_frame[1][0], triangulated_hc_camera_frame[2][0]]
-                triangulated_ec_world_frame = np.matmul(-stereo_cameras[0].R.T, np.matmul(r1.T, triangulated_ec_camera_frame) + stereo_cameras[0].T)
-
+                # check if kalman filter is necessary
                 if filtered_applied:
                     triangulated_ec_world_frame_formated = np.array(([triangulated_ec_world_frame]), np.float32).T
                     # compensate for the initial state set to 0,0,0 in opencv kalman filter
@@ -151,11 +200,11 @@ def triangulate_points(cameras, filtered_applied):
                     # append triangulated point
                     triangulated_markers.append(
                         {'point': np.array([estimated[0][0], estimated[1][0], estimated[2][0]]), 'marker': marker_key,
-                         'cameras': str(stereo_cameras[0].number) + str(stereo_cameras[1].number)})
+                         'cameras': str(stereo_cameras.cameras[0].number) + str(stereo_cameras.cameras[1].number), 'likelihood': str((stereo_cameras.cameras[0].frames[i].markers[j].likelihood + stereo_cameras.cameras[1].frames[i].markers[j].likelihood)/2)})
                 else:
                     # append triangulated point
                     triangulated_markers.append({'point': triangulated_ec_world_frame, 'marker': marker_key,
-                                                 'cameras': str(stereo_cameras[0].number) + str(stereo_cameras[1].number)})
+                                                 'cameras': str(stereo_cameras.cameras[0].number) + str(stereo_cameras.cameras[1].number), 'likelihood': str((stereo_cameras.cameras[0].frames[i].markers[j].likelihood + stereo_cameras.cameras[1].frames[i].markers[j].likelihood)/2)})
         triangulated_frames.append(triangulated_markers)
     return triangulated_frames
 
@@ -234,16 +283,16 @@ def export_xyz(triangulated_frames, cameras):
                 camera_orientation = np.matmul(camera.R.T, [0, 0, 1])
                 xyz_file.write(str(100 + camera_index + 1) + ' ' + str(translation[0]) + ' ' + str(translation[1])
                                + ' ' + str(translation[2]) + ' '
-                               + str(camera_orientation[0]) + ' ' + str(camera_orientation[1]) + ' ' + str(camera_orientation[2]) + ' ' + str(0) + '\n')
+                               + str(camera_orientation[0]) + ' ' + str(camera_orientation[1]) + ' ' + str(camera_orientation[2]) + ' ' + str(0) + ' ' + str(1) + '\n')
             xyz_file.write(str(100) +  ' ' + str(0) + ' ' + str(0)
                            + ' ' + str(0) + ' '
-                           + str(0) + ' ' + str(0) + ' ' + str(0) + ' ' + str(0) + '\n')
+                           + str(0) + ' ' + str(0) + ' ' + str(0) + ' ' + str(0) + ' ' + str(1) + '\n')
             for marker in frame:
                 point = marker['point']
                 marker_key = constants.MARKER_INDICES[marker['marker']]
                 xyz_file.write(str(marker_key) + ' ' + str(point[0]) + ' ' + str(point[1])
                                + ' ' + str(point[2]) + ' '
-                               + str(0) + ' ' + str(0) + ' ' + str(0) + ' ' + marker['cameras'] + '\n')
+                               + str(0) + ' ' + str(0) + ' ' + str(0) + ' ' + marker['cameras'] + ' ' + str(marker['likelihood']) + '\n')
 
 
 # EXAMPLE CALL: CHANGE PATHS
@@ -251,17 +300,17 @@ path = r'C:\Users\lmikolas\Downloads'
 path2 = r'C:\Users\lmikolas\Downloads'
 
 
-frame_paths = [{'camera': 0, 'path': path + r'\\scene-2-cam-0DeepCut_resnet101_pf-markerless3dSep11shuffle1_500000.csv'},
-                {'camera': 1, 'path': path + r'\\scene-2-cam-1DeepCut_resnet101_pf-markerless3dSep11shuffle1_500000.csv'},
-                {'camera': 2, 'path': path + r'\\scene-2-cam-2DeepCut_resnet101_pf-markerless3dSep11shuffle1_500000.csv'},
-                {'camera': 3, 'path': path + r'\\scene-2-cam-3DeepCut_resnet101_pf-markerless3dSep11shuffle1_500000.csv'},
-                {'camera': 4, 'path': path + r'\\scene-2-cam-4DeepCut_resnet101_pf-markerless3dSep11shuffle1_500000.csv'},
-                {'camera': 5, 'path': path + r'\\scene-2-cam-5DeepCut_resnet101_pf-markerless3dSep11shuffle1_500000.csv'},
-                {'camera': 6, 'path': path + r'\\scene-2-cam-6DeepCut_resnet101_pf-markerless3dSep11shuffle1_500000.csv'},
-                {'camera': 7, 'path': path + r'\\scene-2-cam-7DeepCut_resnet101_pf-markerless3dSep11shuffle1_500000.csv'}]
+frame_paths = [{'camera': 0, 'path': path + r'\\scene-2-cam-0DeepCut_resnet101_pf-markerless3dSep11shuffle1_500000filtered.csv'},
+                {'camera': 1, 'path': path + r'\\scene-2-cam-1DeepCut_resnet101_pf-markerless3dSep11shuffle1_500000filtered.csv'},
+                {'camera': 2, 'path': path + r'\\scene-2-cam-2DeepCut_resnet101_pf-markerless3dSep11shuffle1_500000filtered.csv'},
+                {'camera': 3, 'path': path + r'\\scene-2-cam-3DeepCut_resnet101_pf-markerless3dSep11shuffle1_500000filtered.csv'},
+                {'camera': 4, 'path': path + r'\\scene-2-cam-4DeepCut_resnet101_pf-markerless3dSep11shuffle1_500000filtered.csv'},
+                {'camera': 5, 'path': path + r'\\scene-2-cam-5DeepCut_resnet101_pf-markerless3dSep11shuffle1_500000filtered.csv'},
+                {'camera': 6, 'path': path + r'\\scene-2-cam-6DeepCut_resnet101_pf-markerless3dSep11shuffle1_500000filtered.csv'},
+                {'camera': 7, 'path': path + r'\\scene-2-cam-7DeepCut_resnet101_pf-markerless3dSep11shuffle1_500000filtered.csv'}]
 cameras = get_cameras(path2 + r'\intrinsics.json', path2 + r'\extrinsics.json')
 cameras = add_frames(frame_paths, cameras)
 
-triangulated_frames = triangulate_points(cameras, False)
+triangulated_frames = triangulate_points(cameras, True)
 export_csv(triangulated_frames)
 export_xyz(triangulated_frames, cameras)
