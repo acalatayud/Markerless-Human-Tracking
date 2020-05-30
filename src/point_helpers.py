@@ -34,15 +34,6 @@ class Camera:
         self.frames = frames
 
 
-class Stereo:
-    def __init__(self, camera_one, camera_two, remap, primary):
-        self.cameras = [camera_one, camera_two]
-        self.remap = remap
-        self.rotation = np.eye(3)
-        self.translation = [0, 0, 0]
-        self.primary = primary
-
-
 class Frame:
     def __init__(self, markers, frame_number):
         self.markers = markers
@@ -62,7 +53,7 @@ class Filter:
         self.first = True
         self.filter = filter
 
-
+# DEPRECATED: This camera selection method is based on selecting stereo cameras with minimal rotation
 def get_best_stereo_cameras_for_marker(cameras, frame, marker):
     max_index_next = 0
     max_index = len(cameras) - 1
@@ -79,12 +70,13 @@ def get_best_stereo_cameras_for_marker(cameras, frame, marker):
     return stereo_cameras
 
 
+# DEPRECATED: This camera selection method is deprecated tried two select two stereo setups opposite to one another to triangulate.
 def get_front_back_cameras_for_marker(stereo_pairs, frame, marker):
     if stereo_pairs[0].cameras[0].frames[frame].markers[marker].likelihood > 0.0 and stereo_pairs[0].cameras[1].frames[frame].markers[marker].likelihood > 0.0:
         return stereo_pairs[0]
     return stereo_pairs[1]
 
-
+# This method returns camera selection for a certain index in the camera list.
 def get_stereo(cameras, index):
     if index == len(cameras) - 1:
         index_next = 0
@@ -93,16 +85,18 @@ def get_stereo(cameras, index):
     stereo_cameras = [cameras[index], cameras[index_next]]
     return stereo_cameras
 
-
-def get_best_cameras(cameras, frame, marker, min_likelihood=0.999):
+# This is the normal camera selecion method and standard used.
+def get_best_cameras(cameras, frame, marker, min_likelihood=0.999, max_cameras):
     best = []
+    best_likelihood = []
     while len(best) < 2:
         for camera in cameras:
             if camera.frames[frame].markers[marker].likelihood > min_likelihood and camera not in best:
                 best.append(camera)
+                best_likelihood.append(camera.frames[frame].markers[marker].likelihood)
         min_likelihood = min_likelihood - 0.05
 
-    return best
+    return best[:max_cameras]
 
 
 def get_rotation(unit1, unit2):
@@ -119,7 +113,7 @@ def get_rotation(unit1, unit2):
            (axis[1] * axis[2] * k) + axis[0],
            (axis[2] * axis[2] * k) + cosA]]
 
-
+# DEPRECATED: This tried to correct uneven stereo triangulation
 def remap_triangulation(camera_pair_one, camera_pair_two, number_of_markers, image_size):
     # find most distant and likely matching markers
     points_one = [None, None]
@@ -139,24 +133,20 @@ def remap_triangulation(camera_pair_one, camera_pair_two, number_of_markers, ima
     point_two = np.matmul(R, triangulate_point(camera_pair_two, 0, 0, image_size))
     return point_one - point_two, R
 
-<<<<<<< HEAD
-def triangulate_point_stereo_view(stereo_cameras, i, j, image_size):
-=======
-
+# legacy OPENCV triangulation
 def triangulate_point(stereo_cameras, i, j, image_size):
->>>>>>> pymvg
-    relative_translation = np.matmul(stereo_cameras.cameras[0].R, -np.matmul(stereo_cameras.cameras[1].R.T, stereo_cameras.cameras[1].T)
-                                     + np.matmul(stereo_cameras.cameras[0].R.T, stereo_cameras.cameras[0].T))
-    relative_rotation = np.matmul(stereo_cameras.cameras[1].R, stereo_cameras.cameras[0].R.T)
-    r1, r2, p1, p2, q, roi1, roi2 = cv2.stereoRectify(stereo_cameras.cameras[0].camera_matrix,
-                                                      stereo_cameras.cameras[0].distortion_coefficients,
-                                                      stereo_cameras.cameras[1].camera_matrix,
-                                                      stereo_cameras.cameras[1].distortion_coefficients, image_size,
+    relative_translation = np.matmul(stereo_cameras[0].R, -np.matmul(stereo_cameras[1].R.T, stereo_cameras[1].T)
+                                     + np.matmul(stereo_cameras[0].R.T, stereo_cameras[0].T))
+    relative_rotation = np.matmul(stereo_cameras[1].R, stereo_cameras[0].R.T)
+    r1, r2, p1, p2, q, roi1, roi2 = cv2.stereoRectify(stereo_cameras[0].camera_matrix,
+                                                      stereo_cameras[0].distortion_coefficients,
+                                                      stereo_cameras[1].camera_matrix,
+                                                      stereo_cameras[1].distortion_coefficients, image_size,
                                                       relative_rotation, relative_translation)
     R = [r1, r2]
     P = [p1, p2]
     undistorted_points = [None, None]
-    for index, camera in enumerate(stereo_cameras.cameras):
+    for index, camera in enumerate(stereo_cameras):
         marker = camera.frames[i].markers[j]
         point = np.float64([marker.x, marker.y])
         undistorted_point = cv2.undistortPoints(point, camera.camera_matrix,
@@ -167,16 +157,11 @@ def triangulate_point(stereo_cameras, i, j, image_size):
     triangulated_hc_camera_frame = np.divide(triangulated_hc_camera_frame, triangulated_hc_camera_frame[3][0])
     triangulated_ec_camera_frame = [triangulated_hc_camera_frame[0][0], triangulated_hc_camera_frame[1][0],
                                     triangulated_hc_camera_frame[2][0]]
-    triangulated_ec_world_frame = np.matmul(-stereo_cameras.cameras[0].R.T,
-                                            np.matmul(r1.T, triangulated_ec_camera_frame) + stereo_cameras.cameras[0].T)
+    triangulated_ec_world_frame = np.matmul(-stereo_cameras[0].R.T,
+                                            np.matmul(r1.T, triangulated_ec_camera_frame) + stereo_cameras[0].T)
     return triangulated_ec_world_frame
 
-
-<<<<<<< HEAD
-def triangulate_points(cameras, filtered_applied):
-=======
-def triangulate_points(cameras, filtered_applied, min_likelihood=0.7):
->>>>>>> pymvg
+def triangulate_points(cameras, filtered_applied, stereo_triangulation, min_likelihood=0.7):
     if len(cameras) < 2:
         raise Exception('Triangulation process needs at least two cameras')
     number_of_frames = len(cameras[0].frames)
@@ -202,33 +187,26 @@ def triangulate_points(cameras, filtered_applied, min_likelihood=0.7):
         kalman_filter.transitionMatrix = transition_matrix
         kalman_filter.measurementMatrix = measurement_matrix
         filters.append(Filter(kalman_filter))
-<<<<<<< HEAD
-    # triangulate points individually
-    stereo_pairs = [Stereo(cameras[3], cameras[0], [0, 0, 0], True), Stereo(cameras[1], cameras[2], [0, 0, 0], True)]
-    stereo_pairs[1].translation, stereo_pairs[1].rotation = remap_triangulation(stereo_pairs[0], stereo_pairs[1], number_of_markers, image_size)
-=======
->>>>>>> pymvg
-
     for i in range(number_of_frames - 1):
+        best_cameras = []
         triangulated_markers = []
+        triangulated = None
         for j in range(number_of_markers - 1):
-<<<<<<< HEAD
-            stereo_cameras = get_front_back_cameras_for_marker(stereo_pairs, i, j)
-            if stereo_cameras.cameras[0].frames[i].markers[j].likelihood > 0.9 and stereo_cameras.cameras[1].frames[i].markers[j].likelihood > 0.9:
-                marker_key = stereo_cameras.cameras[0].frames[i].markers[j].marker_key
-                # rematch triangulation
-                triangulated_ec_world_frame = triangulate_point_stereo_view(stereo_cameras, i, j, image_size)
-
-=======
-            best_cameras = get_best_cameras(cameras, i, j, min_likelihood)
-            system = MultiCameraSystem([cam.model for cam in best_cameras])
-            points = [(cam.model.name, [cam.frames[i].markers[j].x, cam.frames[i].markers[j].y]) for cam in best_cameras]
-            triangulated = system.find3d(points)
+            
+            # check if old stereo triangulation method is used
+            if stereo_triangulation:
+                best_cameras = get_best_cameras(cameras, i, j, min_likelihood, 2)
+                triangulate_point(best_cameras, i, j, best_cameras[0].image_size)
+            else:
+            # use n view triangulation method
+                best_cameras = get_best_cameras(cameras, i, j, min_likelihood, len(cameras))
+                system = MultiCameraSystem([cam.model for cam in best_cameras])
+                points = [(cam.model.name, [cam.frames[i].markers[j].x, cam.frames[i].markers[j].y]) for cam in best_cameras]
+                triangulated = system.find3d(points)
             point_triangulated = triangulated is not None
             marker_key = best_cameras[0].frames[i].markers[j].marker_key
 
             if point_triangulated:
->>>>>>> pymvg
                 # check if kalman filter is necessary
                 if filtered_applied:
                     triangulated_ec_world_frame_formatted = np.array(([triangulated]), np.float32).T
@@ -343,7 +321,6 @@ def export_xyz(triangulated_frames, cameras):
 
 
 # EXAMPLE CALL: CHANGE PATHS
-<<<<<<< HEAD
 path = r'C:\Users\lmikolas\Downloads'
 path2 = r'C:\Users\lmikolas\Downloads'
 
@@ -352,22 +329,9 @@ frame_paths = [{'camera': 7, 'path': path + r'\\scene-2-cam-DLC_resnet101_pf-mar
                 {'camera': 0, 'path': path + r'\\scene-4-cam-0DLC_resnet101_pf-markerless3dSep11shuffle1_550000filtered.csv'},
                {'camera': 3, 'path': path + r'\\scene-4-cam-3DLC_resnet101_pf-markerless3dSep11shuffle1_550000filtered.csv'},
                {'camera': 4, 'path': path + r'\\scene-4-cam-4DLC_resnet101_pf-markerless3dSep11shuffle1_550000filtered.csv'}]
-=======
-path = r'F:\JetBrains\PyCharm Workspace\pf-markerless3d\pf-markless3d-Agustin Calatayud Lorant Mikolas-2019-10-14\videos'
-path2 = r'E:\Downloads\PF\Captures'
-
-
-frame_paths = [{'camera': 0, 'path': path + r'\\scene-2-cam-0DeepCut_resnet101_pf-markerless3dSep11shuffle1_500000.csv'},
-                {'camera': 1, 'path': path + r'\\scene-2-cam-1DeepCut_resnet101_pf-markerless3dSep11shuffle1_500000.csv'},
-                {'camera': 2, 'path': path + r'\\scene-2-cam-2DeepCut_resnet101_pf-markerless3dSep11shuffle1_500000.csv'},
-                {'camera': 3, 'path': path + r'\\scene-2-cam-3DeepCut_resnet101_pf-markerless3dSep11shuffle1_500000.csv'},
-                {'camera': 4, 'path': path + r'\\scene-2-cam-4DeepCut_resnet101_pf-markerless3dSep11shuffle1_500000.csv'},
-                {'camera': 5, 'path': path + r'\\scene-2-cam-5DeepCut_resnet101_pf-markerless3dSep11shuffle1_500000.csv'},
-                {'camera': 6, 'path': path + r'\\scene-2-cam-6DeepCut_resnet101_pf-markerless3dSep11shuffle1_500000.csv'}]
->>>>>>> pymvg
 cameras = get_cameras(path2 + r'\intrinsics.json', path2 + r'\extrinsics.json')
 cameras = add_frames(frame_paths, cameras)
 
-triangulated_frames = triangulate_points(cameras, True)
+triangulated_frames = triangulate_points(cameras, True, False)
 export_csv(triangulated_frames)
 export_xyz(triangulated_frames, cameras)
