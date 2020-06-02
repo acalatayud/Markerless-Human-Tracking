@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 from pymvg.camera_model import CameraModel
 from pymvg.multi_camera_system import MultiCameraSystem
+from configparser import ConfigParser
 
 
 class Camera:
@@ -86,7 +87,7 @@ def get_stereo(cameras, index):
     return stereo_cameras
 
 # This is the normal camera selecion method and standard used.
-def get_best_cameras(cameras, frame, marker, min_likelihood=0.999, max_cameras):
+def get_best_cameras(cameras, frame, marker, max_cameras, min_likelihood=0.999):
     best = []
     best_likelihood = []
     while len(best) < 2:
@@ -195,11 +196,11 @@ def triangulate_points(cameras, filtered_applied, stereo_triangulation, min_like
             
             # check if old stereo triangulation method is used
             if stereo_triangulation:
-                best_cameras = get_best_cameras(cameras, i, j, min_likelihood, 2)
+                best_cameras = get_best_cameras(cameras, i, j, 2, min_likelihood)
                 triangulate_point(best_cameras, i, j, best_cameras[0].image_size)
             else:
             # use n view triangulation method
-                best_cameras = get_best_cameras(cameras, i, j, min_likelihood, len(cameras))
+                best_cameras = get_best_cameras(cameras, i, j,  len(cameras), min_likelihood)
                 system = MultiCameraSystem([cam.model for cam in best_cameras])
                 points = [(cam.model.name, [cam.frames[i].markers[j].x, cam.frames[i].markers[j].y]) for cam in best_cameras]
                 triangulated = system.find3d(points)
@@ -320,18 +321,29 @@ def export_xyz(triangulated_frames, cameras):
                                + str(0) + ' ' + str(0) + ' ' + str(0) + ' ' + marker['cameras'] + ' ' + str(marker['likelihood']) + '\n')
 
 
-# EXAMPLE CALL: CHANGE PATHS
-path = r'C:\Users\lmikolas\Downloads'
-path2 = r'C:\Users\lmikolas\Downloads'
+config = ConfigParser()
+config.read('../config.ini')
+properties = config['DEFAULT']
+csv_path = properties.get('csv_path')
+properties_path = properties.get('properties_path')
+filter_applied = properties.getboolean('filter_applied', fallback=True)
+stereo_triangulation = properties.getboolean('stereo_triangulation', fallback=False)
+write_xyz = properties.getboolean('write_xyz', fallback=True)
+write_csv = properties.getboolean('write_csv', fallback=True)
 
-
-frame_paths = [{'camera': 7, 'path': path + r'\\scene-2-cam-DLC_resnet101_pf-markerless3dSep11shuffle1_550000filtered.csv'},
-                {'camera': 0, 'path': path + r'\\scene-4-cam-0DLC_resnet101_pf-markerless3dSep11shuffle1_550000filtered.csv'},
-               {'camera': 3, 'path': path + r'\\scene-4-cam-3DLC_resnet101_pf-markerless3dSep11shuffle1_550000filtered.csv'},
-               {'camera': 4, 'path': path + r'\\scene-4-cam-4DLC_resnet101_pf-markerless3dSep11shuffle1_550000filtered.csv'}]
-cameras = get_cameras(path2 + r'\intrinsics.json', path2 + r'\extrinsics.json')
+frame_paths = [{'camera': 0, 'path': csv_path + r'\\scene-2-cam-0DLC_resnet101_pf-markerless3dSep11shuffle1_500000filtered.csv'},
+               {'camera': 1, 'path': csv_path + r'\\scene-2-cam-1DLC_resnet101_pf-markerless3dSep11shuffle1_500000filtered.csv'},
+               {'camera': 2, 'path': csv_path + r'\\scene-2-cam-2DLC_resnet101_pf-markerless3dSep11shuffle1_500000filtered.csv'},
+               {'camera': 3, 'path': csv_path + r'\\scene-2-cam-3DLC_resnet101_pf-markerless3dSep11shuffle1_500000filtered.csv'},
+               {'camera': 4, 'path': csv_path + r'\\scene-2-cam-4DLC_resnet101_pf-markerless3dSep11shuffle1_500000filtered.csv'},
+               {'camera': 5, 'path': csv_path + r'\\scene-2-cam-5DLC_resnet101_pf-markerless3dSep11shuffle1_500000filtered.csv'},
+               {'camera': 6, 'path': csv_path + r'\\scene-2-cam-6DLC_resnet101_pf-markerless3dSep11shuffle1_500000filtered.csv'},
+               {'camera': 7, 'path': csv_path + r'\\scene-2-cam-7DLC_resnet101_pf-markerless3dSep11shuffle1_500000filtered.csv'}]
+cameras = get_cameras(properties_path + r'\intrinsics.json', properties_path + r'\extrinsics.json')
 cameras = add_frames(frame_paths, cameras)
 
-triangulated_frames = triangulate_points(cameras, True, False)
-export_csv(triangulated_frames)
-export_xyz(triangulated_frames, cameras)
+triangulated_frames = triangulate_points(cameras, filter_applied, stereo_triangulation)
+if write_csv:
+    export_csv(triangulated_frames)
+if write_xyz:
+    export_xyz(triangulated_frames, cameras)
