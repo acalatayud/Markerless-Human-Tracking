@@ -1,5 +1,3 @@
-from src import constants
-from src.constants import MARKER_INDICES as INDICES
 import csv
 import json
 import cv2
@@ -8,6 +6,7 @@ from pymvg.camera_model import CameraModel
 from pymvg.multi_camera_system import MultiCameraSystem
 from configparser import ConfigParser
 
+FRAME_NUMBER_INDEX = 0
 
 class Camera:
     def __init__(self, camera_number, intrinsic_properties, extrinsic_properties):
@@ -183,13 +182,12 @@ def triangulate_points(cameras, filtered_applied, stereo_triangulation, min_like
 
     # init filters for all markers tracked
     filters = []
-    for i in range(number_of_markers - 1):
+    for i in range(number_of_markers):
         kalman_filter = cv2.KalmanFilter(9, 3, 0)
         kalman_filter.transitionMatrix = transition_matrix
         kalman_filter.measurementMatrix = measurement_matrix
         filters.append(Filter(kalman_filter))
-    for i in range(number_of_frames - 1):
-        best_cameras = []
+    for i in range(number_of_frames):
         triangulated_markers = []
         triangulated = None
         for j in range(number_of_markers - 1):
@@ -197,7 +195,7 @@ def triangulate_points(cameras, filtered_applied, stereo_triangulation, min_like
             # check if old stereo triangulation method is used
             if stereo_triangulation:
                 best_cameras = get_best_cameras(cameras, i, j, 2, min_likelihood)
-                triangulate_point(best_cameras, i, j, best_cameras[0].image_size)
+                triangulated = triangulate_point(best_cameras, i, j, best_cameras[0].image_size)
             else:
             # use n view triangulation method
                 best_cameras = get_best_cameras(cameras, i, j,  len(cameras), min_likelihood)
@@ -254,9 +252,9 @@ def read_marker_position_csv(csv_file):
         frame_data = list(lines)[3:]
 
         for line in frame_data:
-            frame_number = int(line[constants.FRAME_NUMBER_INDEX])
+            frame_number = int(line[FRAME_NUMBER_INDEX])
             markers = []
-            for marker_key, index in INDICES.items():
+            for marker_key, index in MARKER_INDICES.items():
                 x = float(line[(index - 1) * 3 + 1])
                 y = float(line[(index - 1) * 3 + 2])
                 likelihood = float(line[(index - 1) * 3 + 3])
@@ -315,7 +313,7 @@ def export_xyz(triangulated_frames, cameras):
                            + str(0) + ' ' + str(0) + ' ' + str(0) + ' ' + str(0) + ' ' + str(1) + '\n')
             for marker in frame:
                 point = marker['point']
-                marker_key = constants.MARKER_INDICES[marker['marker']]
+                marker_key = MARKER_INDICES[marker['marker']]
                 xyz_file.write(str(marker_key) + ' ' + str(point[0]) + ' ' + str(point[1])
                                + ' ' + str(point[2]) + ' '
                                + str(0) + ' ' + str(0) + ' ' + str(0) + ' ' + marker['cameras'] + ' ' + str(marker['likelihood']) + '\n')
@@ -331,15 +329,9 @@ stereo_triangulation = properties.getboolean('stereo_triangulation', fallback=Fa
 write_xyz = properties.getboolean('write_xyz', fallback=True)
 write_csv = properties.getboolean('write_csv', fallback=True)
 
-frame_paths = [{'camera': 0, 'path': csv_path + r'\\scene-2-cam-0DLC_resnet101_pf-markerless3dSep11shuffle1_500000filtered.csv'},
-               {'camera': 1, 'path': csv_path + r'\\scene-2-cam-1DLC_resnet101_pf-markerless3dSep11shuffle1_500000filtered.csv'},
-               {'camera': 2, 'path': csv_path + r'\\scene-2-cam-2DLC_resnet101_pf-markerless3dSep11shuffle1_500000filtered.csv'},
-               {'camera': 3, 'path': csv_path + r'\\scene-2-cam-3DLC_resnet101_pf-markerless3dSep11shuffle1_500000filtered.csv'},
-               {'camera': 4, 'path': csv_path + r'\\scene-2-cam-4DLC_resnet101_pf-markerless3dSep11shuffle1_500000filtered.csv'},
-               {'camera': 5, 'path': csv_path + r'\\scene-2-cam-5DLC_resnet101_pf-markerless3dSep11shuffle1_500000filtered.csv'},
-               {'camera': 6, 'path': csv_path + r'\\scene-2-cam-6DLC_resnet101_pf-markerless3dSep11shuffle1_500000filtered.csv'},
-               {'camera': 7, 'path': csv_path + r'\\scene-2-cam-7DLC_resnet101_pf-markerless3dSep11shuffle1_500000filtered.csv'}]
-cameras = get_cameras(properties_path + r'\intrinsics.json', properties_path + r'\extrinsics.json')
+frame_paths = json.loads(properties.get('frame_paths'))
+MARKER_INDICES = json.loads(properties.get('markers'))
+cameras = get_cameras(properties_path + '/intrinsics.json', properties_path + '/extrinsics.json')
 cameras = add_frames(frame_paths, cameras)
 
 triangulated_frames = triangulate_points(cameras, filter_applied, stereo_triangulation)
