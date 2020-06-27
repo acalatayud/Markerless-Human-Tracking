@@ -85,6 +85,7 @@ def get_stereo(cameras, index):
     stereo_cameras = [cameras[index], cameras[index_next]]
     return stereo_cameras
 
+
 # This is the normal camera selecion method and standard used.
 def get_best_cameras(cameras, frame, marker, max_cameras, min_likelihood=0.999):
     best = []
@@ -189,8 +190,7 @@ def triangulate_points(cameras, filtered_applied, stereo_triangulation, min_like
         filters.append(Filter(kalman_filter))
     for i in range(number_of_frames):
         triangulated_markers = []
-        triangulated = None
-        for j in range(number_of_markers - 1):
+        for j in range(number_of_markers):
             
             # check if old stereo triangulation method is used
             if stereo_triangulation:
@@ -300,7 +300,7 @@ def export_csv(triangulated_frames):
 def export_xyz(triangulated_frames, cameras):
     with open('points.xyz', mode='w', newline='') as xyz_file:
         for index, frame in enumerate(triangulated_frames):
-            xyz_file.write(str(len(triangulated_frames[index]) + len(cameras) + 1) + "\n")
+            xyz_file.write(str(len(triangulated_frames[index]) + len(cameras)) + "\n")
             xyz_file.write("\n")
             for camera_index, camera in enumerate(cameras):
                 translation = -np.matmul(camera.R.T, camera.T)
@@ -308,9 +308,6 @@ def export_xyz(triangulated_frames, cameras):
                 xyz_file.write(str(100 + camera_index + 1) + ' ' + str(translation[0]) + ' ' + str(translation[1])
                                + ' ' + str(translation[2]) + ' '
                                + str(camera_orientation[0]) + ' ' + str(camera_orientation[1]) + ' ' + str(camera_orientation[2]) + ' ' + str(0) + ' ' + str(1) + '\n')
-            xyz_file.write(str(100) +  ' ' + str(0) + ' ' + str(0)
-                           + ' ' + str(0) + ' '
-                           + str(0) + ' ' + str(0) + ' ' + str(0) + ' ' + str(0) + ' ' + str(1) + '\n')
             for marker in frame:
                 point = marker['point']
                 marker_key = MARKER_INDICES[marker['marker']]
