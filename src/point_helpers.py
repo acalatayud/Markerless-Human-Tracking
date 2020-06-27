@@ -71,8 +71,8 @@ def get_best_stereo_cameras_for_marker(cameras, frame, marker):
 
 
 # DEPRECATED: This camera selection method is deprecated tried two select two stereo setups opposite to one another to triangulate.
-def get_front_back_cameras_for_marker(stereo_pairs, frame, marker):
-    if stereo_pairs[0].cameras[0].frames[frame].markers[marker].likelihood > 0.0 and stereo_pairs[0].cameras[1].frames[frame].markers[marker].likelihood > 0.0:
+def get_front_back_cameras_for_marker(stereo_pairs, frame, marker, min_likelihood=0.0):
+    if stereo_pairs[0][0].frames[frame].markers[marker].likelihood > min_likelihood and stereo_pairs[0][1].frames[frame].markers[marker].likelihood > min_likelihood:
         return stereo_pairs[0]
     return stereo_pairs[1]
 
@@ -84,6 +84,30 @@ def get_stereo(cameras, index):
         index_next = index + 1
     stereo_cameras = [cameras[index], cameras[index_next]]
     return stereo_cameras
+
+
+def get_best_pair(cameras):
+    number_of_frames = len(cameras[0].frames)
+    number_of_markers = len(cameras[0].frames[0].markers)
+    likelihoods = np.zeros((number_of_frames, number_of_markers, len(cameras)))
+    for frame in range(number_of_frames):
+        for marker in range(number_of_markers):
+            for idx, camera in enumerate(cameras):
+                likelihoods[frame, marker, idx] = camera.frames[frame].markers[marker].likelihood
+
+    mean_likelihood = np.mean(likelihoods, axis=(0, 1))
+    best_likelihood = -1
+    best_pair = None
+    for i in range(len(cameras)):
+        pair = get_stereo(cameras, i)
+        pair_mean_likelihood = (mean_likelihood[pair[0].number] + mean_likelihood[pair[1].number]) / 2
+        if pair_mean_likelihood > best_likelihood:
+            best_likelihood = pair_mean_likelihood
+            best_pair = pair
+    back_pair = get_stereo(cameras, (best_pair[0].number + round(len(cameras)/2)) % len(cameras))
+    stereo_pair = [best_pair, back_pair]
+    return stereo_pair
+
 
 
 # This is the normal camera selecion method and standard used.
@@ -168,6 +192,10 @@ def triangulate_points(cameras, filtered_applied, stereo_triangulation, min_like
     number_of_frames = len(cameras[0].frames)
     number_of_markers = len(cameras[0].frames[0].markers)
     triangulated_frames = []
+    stereo_pair = None
+
+    if stereo_triangulation:
+        stereo_pair = get_best_pair(cameras)
 
     # set up filter values
     dt = 1.0 / 24
@@ -194,7 +222,7 @@ def triangulate_points(cameras, filtered_applied, stereo_triangulation, min_like
             
             # check if old stereo triangulation method is used
             if stereo_triangulation:
-                best_cameras = get_best_cameras(cameras, i, j, 2, min_likelihood)
+                best_cameras = get_front_back_cameras_for_marker(stereo_pair, i, j, min_likelihood)
                 triangulated = triangulate_point(best_cameras, i, j, best_cameras[0].image_size)
             else:
             # use n view triangulation method
