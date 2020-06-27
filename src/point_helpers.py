@@ -222,7 +222,7 @@ def triangulate_points(cameras, filtered_applied, stereo_triangulation, min_like
             
             # check if old stereo triangulation method is used
             if stereo_triangulation:
-                best_cameras = get_front_back_cameras_for_marker(stereo_pair, i, j, min_likelihood)
+                best_cameras = get_front_back_cameras_for_marker(stereo_pair, i, j, 0.5)
                 triangulated = triangulate_point(best_cameras, i, j, best_cameras[0].image_size)
             else:
             # use n view triangulation method
@@ -230,7 +230,8 @@ def triangulate_points(cameras, filtered_applied, stereo_triangulation, min_like
                 system = MultiCameraSystem([cam.model for cam in best_cameras])
                 points = [(cam.model.name, [cam.frames[i].markers[j].x, cam.frames[i].markers[j].y]) for cam in best_cameras]
                 triangulated = system.find3d(points)
-            point_triangulated = triangulated is not None
+            average_likelihood = np.mean([cam.frames[i].markers[j].likelihood for cam in best_cameras])
+            point_triangulated = triangulated is not None and average_likelihood > min_likelihood
             marker_key = best_cameras[0].frames[i].markers[j].marker_key
 
             if point_triangulated:
@@ -249,13 +250,12 @@ def triangulate_points(cameras, filtered_applied, stereo_triangulation, min_like
                     triangulated_markers.append(
                         {'point': np.array([estimated[0][0], estimated[1][0], estimated[2][0]]), 'marker': marker_key,
                          'cameras': "".join([str(cam.number) for cam in best_cameras]),
-                         'likelihood': str(np.mean([cam.frames[i].markers[j].likelihood for cam in best_cameras]))})
+                         'likelihood': str(average_likelihood)})
                 else:
                     # append triangulated point
                     triangulated_markers.append({'point': triangulated, 'marker': marker_key,
                                                  'cameras': "".join([str(cam.number) for cam in best_cameras]),
-                                                 'likelihood': str(np.mean(
-                                                     [cam.frames[i].markers[j].likelihood for cam in best_cameras]))})
+                                                 'likelihood': str(average_likelihood)})
 
         triangulated_frames.append(triangulated_markers)
     return triangulated_frames
