@@ -300,7 +300,7 @@ def export_csv(triangulated_frames):
 def export_xyz(triangulated_frames, cameras):
     with open('points.xyz', mode='w', newline='') as xyz_file:
         for index, frame in enumerate(triangulated_frames):
-            xyz_file.write(str(len(triangulated_frames[index]) + len(cameras) + 1) + "\n")
+            xyz_file.write(str(len(triangulated_frames[index]) + len(cameras)) + "\n")
             xyz_file.write("\n")
             for camera_index, camera in enumerate(cameras):
                 translation = -np.matmul(camera.R.T, camera.T)
@@ -308,9 +308,6 @@ def export_xyz(triangulated_frames, cameras):
                 xyz_file.write(str(100 + camera_index + 1) + ' ' + str(translation[0]) + ' ' + str(translation[1])
                                + ' ' + str(translation[2]) + ' '
                                + str(camera_orientation[0]) + ' ' + str(camera_orientation[1]) + ' ' + str(camera_orientation[2]) + ' ' + str(0) + ' ' + str(1) + '\n')
-            xyz_file.write(str(100) +  ' ' + str(0) + ' ' + str(0)
-                           + ' ' + str(0) + ' '
-                           + str(0) + ' ' + str(0) + ' ' + str(0) + ' ' + str(0) + ' ' + str(1) + '\n')
             for marker in frame:
                 point = marker['point']
                 marker_key = MARKER_INDICES[marker['marker']]
@@ -318,24 +315,24 @@ def export_xyz(triangulated_frames, cameras):
                                + ' ' + str(point[2]) + ' '
                                + str(0) + ' ' + str(0) + ' ' + str(0) + ' ' + marker['cameras'] + ' ' + str(marker['likelihood']) + '\n')
 
+if __name__ == '__main__':
+    config = ConfigParser()
+    config.read('../config.ini')
+    properties = config['DEFAULT']
+    csv_path = properties.get('csv_path')
+    properties_path = properties.get('properties_path')
+    filter_applied = properties.getboolean('filter_applied', fallback=True)
+    stereo_triangulation = properties.getboolean('stereo_triangulation', fallback=False)
+    write_xyz = properties.getboolean('write_xyz', fallback=True)
+    write_csv = properties.getboolean('write_csv', fallback=True)
 
-config = ConfigParser()
-config.read('../config.ini')
-properties = config['DEFAULT']
-csv_path = properties.get('csv_path')
-properties_path = properties.get('properties_path')
-filter_applied = properties.getboolean('filter_applied', fallback=True)
-stereo_triangulation = properties.getboolean('stereo_triangulation', fallback=False)
-write_xyz = properties.getboolean('write_xyz', fallback=True)
-write_csv = properties.getboolean('write_csv', fallback=True)
+    frame_paths = json.loads(properties.get('frame_paths'))
+    MARKER_INDICES = json.loads(properties.get('markers'))
+    cameras = get_cameras(properties_path + '/intrinsics.json', properties_path + '/extrinsics.json')
+    cameras = add_frames(frame_paths, cameras)
 
-frame_paths = json.loads(properties.get('frame_paths'))
-MARKER_INDICES = json.loads(properties.get('markers'))
-cameras = get_cameras(properties_path + '/intrinsics.json', properties_path + '/extrinsics.json')
-cameras = add_frames(frame_paths, cameras)
-
-triangulated_frames = triangulate_points(cameras, filter_applied, stereo_triangulation)
-if write_csv:
-    export_csv(triangulated_frames)
-if write_xyz:
-    export_xyz(triangulated_frames, cameras)
+    triangulated_frames = triangulate_points(cameras, filter_applied, stereo_triangulation)
+    if write_csv:
+        export_csv(triangulated_frames)
+    if write_xyz:
+        export_xyz(triangulated_frames, cameras)
