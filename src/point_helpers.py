@@ -219,7 +219,16 @@ def triangulate_points(cameras, filtered_applied, stereo_triangulation, min_like
     for i in range(number_of_frames):
         triangulated_markers = []
         for j in range(number_of_markers):
-            
+            visible_counter = 0
+            for camera in cameras:
+                if camera.frames[i].markers[j].likelihood > 0 and \
+                        ((stereo_triangulation and (camera in stereo_pair[0] or camera in stereo_pair[1]))
+                         or not stereo_triangulation):
+                    visible_counter += 1
+
+            if visible_counter < 2:
+                continue
+
             # check if old stereo triangulation method is used
             if stereo_triangulation:
                 best_cameras = get_front_back_cameras_for_marker(stereo_pair, i, j, 0.5)

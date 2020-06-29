@@ -1,3 +1,4 @@
+import csv
 import os
 
 import json
@@ -31,8 +32,7 @@ def read_images(dir, cameras):
         for filename in files:
             if filename.endswith(".png"):
                 detected = detect_charuco(directory + '/' + filename, cameras[idx])
-                if detected is not None:
-                    charuco_corners[int(filename.split(".")[0])] = detected
+                charuco_corners[int(filename.split(".")[0])] = detected
         camera_corners.append(charuco_corners)
     return camera_corners
 
@@ -40,13 +40,48 @@ def read_images(dir, cameras):
 def detect_charuco(filename, camera):
     image = cv2.imread(filename, cv2.IMREAD_GRAYSCALE)
     dictionary = cv2.aruco.Dictionary_get(cv2.aruco.DICT_6X6_250)
-    board = cv2.aruco.CharucoBoard_create(3, 5, 2, 1, dictionary)
+    board = cv2.aruco.CharucoBoard_create(3, 5, 0.27, 0.16, dictionary)
     corners, ids, rejected = cv2.aruco.detectMarkers(image, dictionary, cameraMatrix=camera.camera_matrix, distCoeff=camera.distortion_coefficients)
     corners, ids, rejected, _ = cv2.aruco.refineDetectedMarkers(image, board, corners, ids, rejected, camera.camera_matrix, camera.distortion_coefficients)
     if ids is not None and len(ids) > 0:
-        return cv2.aruco.interpolateCornersCharuco(corners, ids, image, board, cameraMatrix=camera.camera_matrix, distCoeffs=camera.distortion_coefficients)
+        detected = {}
+        interpolated = cv2.aruco.interpolateCornersCharuco(corners, ids, image, board, cameraMatrix=camera.camera_matrix, distCoeffs=camera.distortion_coefficients)
+        if interpolated[0] < 1:
+            return None
+        corner_ids = interpolated[2].ravel()
+        positions = interpolated[1].reshape((interpolated[1].shape[0], interpolated[1].shape[2]))
+        for i in range(len(corner_ids)):
+            detected[corner_ids[i]] = positions[i]
+        return detected
     return None
+
+def write_marker_position_csv(csv_file, corners):
+
+    with open(csv_file, 'w', newline='') as file:
+        writer = csv.writer(file, delimiter=',')
+        writer.writerows([[]] * 3)
+
+        for frame, data in corners.items():
+            frame_number = int(frame)
+            markers = []
+
+            for i in range(8):
+                if data is None or i not in data:
+                    x = 0
+                    y = 0
+                    likelihood = 0
+                else:
+                    x = data[i][0]
+                    y = data[i][1]
+                    likelihood = 1
+                markers.append([x, y, likelihood])
+
+            writer.writerow([frame_number] + [item for sublist in markers for item in sublist])
+
+    return
 
 cameras = get_cameras("E:/Downloads/PF/Captures/intrinsics.json", "E:/Downloads/PF/Captures/extrinsics.json")
 read_ground_truth("E:/Downloads/PF/Captures/reconstruction-scene-0.json")
 camera_corners = read_images("E:/Downloads/PF/Captures/scene-0/calibration", cameras)
+for index, corners in enumerate(camera_corners):
+    write_marker_position_csv('charuco-corners-cam-' + str(index) + '.csv', corners)
