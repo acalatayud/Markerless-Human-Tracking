@@ -20,6 +20,7 @@ class TriangulationSystem {
         std::shared_ptr<std::vector<std::shared_ptr<Camera>>> getBestCameras(int frame, int marker);
         void triangulatePoints();
         void exportXYZ();
+        void exportCSV();
 
         static std::vector<std::vector<std::string>> getRowsOfCSV(std::string path) {
             std::ifstream ifs(path.c_str());

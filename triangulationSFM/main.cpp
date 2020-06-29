@@ -27,5 +27,7 @@ int main() {
     triangulationSystem.triangulatePoints();
     // export for showing
     triangulationSystem.exportXYZ();
+    // export for comparison
+    triangulationSystem.exportCSV();
     return 0;
 }

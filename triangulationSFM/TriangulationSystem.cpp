@@ -109,6 +109,16 @@ void TriangulationSystem::triangulatePoints() {
     for (int frame = 0; frame < numberOfFrames; frame++) {
         std::shared_ptr<std::vector<std::shared_ptr<cv::Point3d>>> frames = std::make_shared<std::vector<std::shared_ptr<cv::Point3d>>>();
         for (int marker = 0; marker < numberOfMarkers; marker++) {
+
+            int visible_cameras = 0;
+            for(const auto& camera : *cameras) {
+                if (camera->getFrames()->at(frame)->getMarkers()->at(marker)->getLikelihood() > 0)
+                    visible_cameras++;
+            }
+
+            if (visible_cameras < 2)
+                continue;
+
             // vector containing undistored points
             std::vector<cv::Mat> undistortedPoints;
             std::vector<cv::Mat> projectionMatrices;
@@ -157,6 +167,20 @@ void TriangulationSystem::exportXYZ() {
             MyFile << number << " " << marker->x << " " << marker->y << " " << marker->z << "\n";
             number++;
         }
+    }
+    MyFile.close();
+}
+
+void TriangulationSystem::exportCSV() {
+    std::ofstream MyFile("points.csv");
+    int frameNumber = 0;
+    for (const auto& frame : TriangulationSystem::triangulatedFrames) {
+        int number = 1;
+        for (const auto& marker : *frame) {
+            MyFile << frameNumber << "," << number << "," << marker->x << "," << marker->y << "," << marker->z << "\n";
+            number++;
+        }
+        frameNumber++;
     }
     MyFile.close();
 }
