@@ -13,14 +13,14 @@ def read_ground_truth(json_file):
     with open(json_file, 'r') as file:
         triangulation = json.load(file)
 
-    frames = []
+    frames = {}
     for frame in triangulation['reconstruction']['frames']:
         points = np.zeros((8, 3))
         for camera in frame['frameData']:
             for idx, point in enumerate(camera['points']):
                 points[idx] += [float(point['x']), float(point['y']), float(point['z'])]
         points = points / len(frame['frameData'])
-        frames.append(points)
+        frames[int(frame['frameNumber'])] = points
     return frames
 
 def read_images(dir, cameras):
@@ -80,8 +80,57 @@ def write_marker_position_csv(csv_file, corners):
 
     return
 
-cameras = get_cameras("E:/Downloads/PF/Captures/intrinsics.json", "E:/Downloads/PF/Captures/extrinsics.json")
-read_ground_truth("E:/Downloads/PF/Captures/reconstruction-scene-0.json")
-camera_corners = read_images("E:/Downloads/PF/Captures/scene-0/calibration", cameras)
-for index, corners in enumerate(camera_corners):
-    write_marker_position_csv('charuco-corners-cam-' + str(index) + '.csv', corners)
+def calculate_error(ground_truth, frames):
+    count = 0
+    mean_squared_error = 0
+    for idx, frame in ground_truth.items():
+        if idx in frames:
+            for point_index, point in enumerate(frame):
+                if point_index + 1 in frames[idx]:
+                    mean_squared_error += np.power(np.linalg.norm(frames[idx][point_index + 1])
+                                                   - np.linalg.norm(point), 2)
+                    count += 1
+    return mean_squared_error / count, count / (8 * len(ground_truth))
+
+
+def read_triangulation_csv(csv_file):
+
+    with open(csv_file, 'r') as file:
+        lines = csv.reader(file, delimiter=',')
+        frame_data = list(lines)[1:]
+        finished = False
+        line = 0
+        frames = {}
+
+        while not finished:
+            frame_number = int(frame_data[line][0])
+            markers = {}
+
+            while int(frame_data[line][0]) == frame_number:
+                point = int(frame_data[line][1])
+                x = float(frame_data[line][2])
+                y = float(frame_data[line][3])
+                z = float(frame_data[line][4])
+                markers[point] = np.array([x, y, z])
+                line += 1
+                if line == len(frame_data):
+                    finished = True
+                    break
+
+            frames[frame_number] = markers
+
+    return frames
+
+# cameras = get_cameras("E:/Downloads/PF/Captures/intrinsics.json", "E:/Downloads/PF/Captures/extrinsics.json")
+ground_truth = read_ground_truth("E:/Downloads/PF/Captures/reconstruction-scene-0.json")
+# camera_corners = read_images("E:/Downloads/PF/Captures/scene-0/calibration", cameras)
+# for index, corners in enumerate(camera_corners):
+#     write_marker_position_csv('charuco-corners-cam-' + str(index) + '.csv', corners)
+error = [0, 0, 0]
+visible_ratio = [0, 0, 0]
+error[0], visible_ratio[0] = calculate_error(ground_truth, read_triangulation_csv("./points_P.csv"))
+error[1], visible_ratio[1] = calculate_error(ground_truth, read_triangulation_csv("./points_S.csv"))
+error[2], visible_ratio[2] = calculate_error(ground_truth, read_triangulation_csv("./points_SFM.csv"))
+print(error)
+print(visible_ratio)
+
